@@ -200,6 +200,7 @@
       <div>Mouse wheel = zoom</div>
       <div>Right drag = pan</div>
       <div>Click wall = highlight + focus camera + show info</div>
+      <div>Export GLB = open model in Blender and similar tools</div>
     </div>
 
     <div id="info-panel">
@@ -217,6 +218,7 @@
       <button id="btn-wireframe">Toggle Wireframe</button>
       <button id="btn-grid">Toggle Grid</button>
       <button id="btn-clear">Clear Selection</button>
+      <button id="btn-export">Export GLB</button>
     </div>
   </div>
 
@@ -224,6 +226,7 @@
     
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 
     const container = document.getElementById("canvas-container");
     const loadingEl = document.getElementById("loading");
@@ -242,6 +245,7 @@
     const btnWireframe = document.getElementById("btn-wireframe");
     const btnGrid = document.getElementById("btn-grid");
     const btnClear = document.getElementById("btn-clear");
+    const btnExport = document.getElementById("btn-export");
 
     const DEFAULT_JSON_FILE = "structured_walls_lab.json";
 
@@ -261,6 +265,7 @@
     let selectedWall = null;
     let wireframeVisible = false;
     let gridVisible = true;
+    let currentModelName = "walls_model";
     let currentSceneCenter = new THREE.Vector3(0, 1.8, 0);
     let currentSceneSize = new THREE.Vector3(6, 3.6, 6);
     let currentSceneBounds = new THREE.Box3(
@@ -375,6 +380,7 @@
       btnWireframe.addEventListener("click", toggleWireframe);
       btnGrid.addEventListener("click", toggleGrid);
       btnClear.addEventListener("click", clearSelection);
+      btnExport.addEventListener("click", exportWallsAsGlb);
 
       restoreFreeCameraControls();
       setIdleSceneView();
@@ -392,6 +398,7 @@
 
         const data = await response.json();
         fileNameEl.textContent = `Loaded: ${DEFAULT_JSON_FILE}`;
+        currentModelName = getBaseFileName(DEFAULT_JSON_FILE);
         rebuildSceneFromData(data);
         hideLoading();
       } catch (error) {
@@ -406,6 +413,7 @@
       if (!file) return;
 
       fileNameEl.textContent = `Loaded: ${file.name}`;
+      currentModelName = getBaseFileName(file.name);
       showLoading("Reading uploaded JSON...");
 
       const reader = new FileReader();
@@ -652,6 +660,80 @@
     function toggleGrid() {
       gridVisible = !gridVisible;
       gridHelper.visible = gridVisible;
+    }
+
+    function exportWallsAsGlb() {
+      if (wallMeshes.length === 0) {
+        showLoading("No wall model available to export.");
+        window.setTimeout(hideLoading, 1600);
+        return;
+      }
+
+      showLoading("Preparing GLB export...");
+
+      const exportGroup = new THREE.Group();
+      exportGroup.name = "walls_export";
+
+      wallMeshes.forEach(mesh => {
+        const exportMesh = new THREE.Mesh(
+          mesh.geometry.clone(),
+          mesh.material.clone()
+        );
+
+        exportMesh.name = String(mesh.userData.id ?? "wall");
+        exportMesh.position.copy(mesh.position);
+        exportMesh.quaternion.copy(mesh.quaternion);
+        exportMesh.scale.copy(mesh.scale);
+        exportMesh.userData = {
+          id: mesh.userData.id,
+          confidence: mesh.userData.confidence,
+          height: mesh.userData.height
+        };
+
+        exportGroup.add(exportMesh);
+      });
+
+      const exporter = new GLTFExporter();
+      exporter.parse(
+        exportGroup,
+        glb => {
+          downloadBinaryFile(glb, `${currentModelName || "walls_model"}.glb`);
+          disposeMeshDeep(exportGroup);
+          hideLoading();
+        },
+        error => {
+          console.error("GLB export failed:", error);
+          disposeMeshDeep(exportGroup);
+          showLoading("Export failed. Please try again.");
+          window.setTimeout(hideLoading, 1800);
+        },
+        {
+          binary: true,
+          onlyVisible: true,
+          trs: false,
+          includeCustomExtensions: false
+        }
+      );
+    }
+
+    function downloadBinaryFile(data, fileName) {
+      const blob = new Blob([data], { type: "model/gltf-binary" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function getBaseFileName(fileName) {
+      if (typeof fileName !== "string" || fileName.trim() === "") {
+        return "walls_model";
+      }
+
+      return fileName.replace(/\.[^/.]+$/, "") || "walls_model";
     }
 
     function clearSelectionLegacy() {
