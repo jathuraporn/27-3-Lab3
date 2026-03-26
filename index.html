@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hour 3 - Interactive 3D Wall Viewer</title>
+
+  <!-- Import Map เพื่อแก้ปัญหาการเรียกใช้โมดูลแบบ bare specifier ("three") -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f0f2f5;
+    }
+
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      position: relative;
+    }
+
+    #loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 1.2rem;
+      color: #333;
+      font-weight: 600;
+      background: rgba(255,255,255,0.92);
+      padding: 16px 24px;
+      border-radius: 10px;
+      z-index: 200;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+      text-align: center;
+      min-width: 240px;
+    }
+
+    #top-controls {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      background: rgba(255, 255, 255, 0.96);
+      padding: 14px;
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+      z-index: 100;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    #top-controls input[type="file"] {
+      display: none;
+    }
+
+    .upload-btn,
+    button {
+      background-color: #3498db;
+      color: white;
+      border: none;
+      padding: 10px 14px;
+      border-radius: 7px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 3px 6px rgba(0,0,0,0.08);
+      transition: background-color 0.2s, transform 0.08s;
+    }
+
+    .upload-btn:hover,
+    button:hover {
+      background-color: #2980b9;
+    }
+
+    .upload-btn:active,
+    button:active {
+      transform: translateY(1px);
+    }
+
+    .upload-btn {
+      background-color: #2ecc71;
+      display: inline-block;
+    }
+
+    .upload-btn:hover {
+      background-color: #27ae60;
+    }
+
+    #ui-controls {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      display: flex;
+      gap: 10px;
+      z-index: 100;
+      flex-wrap: wrap;
+    }
+
+    #info-panel {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      width: 320px;
+      max-width: calc(100vw - 40px);
+      background: rgba(255, 255, 255, 0.96);
+      padding: 18px;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+      border: 1px solid rgba(0, 0, 0, 0.05);
+      display: none;
+      z-index: 100;
+      box-sizing: border-box;
+    }
+
+    #info-panel h2 {
+      margin-top: 0;
+      margin-bottom: 14px;
+      font-size: 1.1rem;
+      color: #222;
+      border-bottom: 2px solid #3498db;
+      padding-bottom: 8px;
+    }
+
+    .info-row {
+      margin-bottom: 10px;
+      font-size: 0.94rem;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
+    .info-label {
+      font-weight: 700;
+      color: #555;
+      display: inline-block;
+      min-width: 95px;
+      vertical-align: top;
+    }
+
+    .info-value {
+      color: #2c3e50;
+    }
+
+    #help-text {
+      position: absolute;
+      top: 88px;
+      left: 20px;
+      background: rgba(255,255,255,0.95);
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      padding: 12px 14px;
+      z-index: 90;
+      font-size: 0.9rem;
+      color: #333;
+      line-height: 1.5;
+      max-width: 360px;
+    }
+
+    #help-text b {
+      color: #111;
+    }
+
+    @media (max-width: 900px) {
+      #info-panel {
+        width: 280px;
+      }
+
+      #help-text {
+        top: 135px;
+        max-width: 300px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="canvas-container">
+    <div id="loading">Loading 3D Walls...</div>
+
+    <div id="top-controls">
+      <label for="file-upload" class="upload-btn">Upload JSON File</label>
+      <input type="file" id="file-upload" accept=".json" />
+      <span id="file-name" style="font-size: 0.9rem; color: #444;">Default: structured_walls_lab.json</span>
+    </div>
+
+    <div id="help-text">
+      <div><b>How to use</b></div>
+      <div>Left drag = rotate</div>
+      <div>Mouse wheel = zoom</div>
+      <div>Right drag = pan</div>
+      <div>Click wall = highlight + focus camera + show info</div>
+    </div>
+
+    <div id="info-panel">
+      <h2>Wall Information</h2>
+      <div class="info-row"><span class="info-label">ID:</span> <span class="info-value" id="val-id">-</span></div>
+      <div class="info-row"><span class="info-label">Confidence:</span> <span class="info-value" id="val-conf">-</span></div>
+      <div class="info-row"><span class="info-label">Height:</span> <span class="info-value" id="val-height">-</span></div>
+      <div class="info-row"><span class="info-label">BBox:</span> <span class="info-value" id="val-bbox">-</span></div>
+      <div class="info-row"><span class="info-label">Bottom 3D:</span> <span class="info-value" id="val-bottom">-</span></div>
+      <div class="info-row"><span class="info-label">Top 3D:</span> <span class="info-value" id="val-top">-</span></div>
+    </div>
+
+    <div id="ui-controls">
+      <button id="btn-reset">Reset Camera</button>
+      <button id="btn-wireframe">Toggle Wireframe</button>
+      <button id="btn-grid">Toggle Grid</button>
+      <button id="btn-clear">Clear Selection</button>
+    </div>
+  </div>
+
+  <script type="module">
+    
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    const container = document.getElementById("canvas-container");
+    const loadingEl = document.getElementById("loading");
+    const fileUploadEl = document.getElementById("file-upload");
+    const fileNameEl = document.getElementById("file-name");
+
+    const infoPanel = document.getElementById("info-panel");
+    const valId = document.getElementById("val-id");
+    const valConf = document.getElementById("val-conf");
+    const valHeight = document.getElementById("val-height");
+    const valBBox = document.getElementById("val-bbox");
+    const valBottom = document.getElementById("val-bottom");
+    const valTop = document.getElementById("val-top");
+
+    const btnReset = document.getElementById("btn-reset");
+    const btnWireframe = document.getElementById("btn-wireframe");
+    const btnGrid = document.getElementById("btn-grid");
+    const btnClear = document.getElementById("btn-clear");
+
+    const DEFAULT_JSON_FILE = "structured_walls_lab.json";
+
+    const DEFAULT_WALL_COLOR = 0x3498db;
+    const HIGHLIGHT_WALL_COLOR = 0xe67e22;
+    const EDGE_COLOR = 0x111111;
+    const WIREFRAME_COLOR = 0xff0000;
+    const SCENE_CAMERA_DIRECTION = new THREE.Vector3(1.35, 0.9, 1.35).normalize();
+    const WALL_CAMERA_ELEVATION = 0.18;
+    const DEFAULT_HELPER_SIZE = 12;
+
+    let scene, camera, renderer, controls;
+    let gridHelper, floorMesh, axesHelper, backdropMesh;
+    let raycaster, mouse;
+
+    let wallMeshes = [];
+    let selectedWall = null;
+    let wireframeVisible = false;
+    let gridVisible = true;
+    let currentSceneCenter = new THREE.Vector3(0, 1.8, 0);
+    let currentSceneSize = new THREE.Vector3(6, 3.6, 6);
+    let currentSceneBounds = new THREE.Box3(
+      new THREE.Vector3(-3, 0, -3),
+      new THREE.Vector3(3, 3.6, 3)
+    );
+
+    init();
+    loadDefaultJSON();
+
+    function init() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color("#e8edf5");
+      scene.fog = new THREE.Fog(0xe8edf5, 22, 58);
+
+      camera = new THREE.PerspectiveCamera(
+        60,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        10000
+      );
+      camera.position.set(10, 8, 10);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.05;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      container.appendChild(renderer.domElement);
+
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.target.set(0, 0, 0);
+
+      const hemiLight = new THREE.HemisphereLight(0xf5f8ff, 0xb4bcc8, 1.05);
+      scene.add(hemiLight);
+
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.35);
+      scene.add(ambientLight);
+
+      const keyLight = new THREE.DirectionalLight(0xfff4df, 1.45);
+      keyLight.position.set(18, 24, 12);
+      keyLight.castShadow = true;
+      keyLight.shadow.mapSize.width = 2048;
+      keyLight.shadow.mapSize.height = 2048;
+      keyLight.shadow.radius = 6;
+      keyLight.shadow.bias = -0.0008;
+      keyLight.shadow.camera.near = 1;
+      keyLight.shadow.camera.far = 80;
+      keyLight.shadow.camera.left = -18;
+      keyLight.shadow.camera.right = 18;
+      keyLight.shadow.camera.top = 18;
+      keyLight.shadow.camera.bottom = -18;
+      scene.add(keyLight);
+
+      const fillLight = new THREE.DirectionalLight(0xcfe3ff, 0.7);
+      fillLight.position.set(-14, 11, -16);
+      scene.add(fillLight);
+
+      const rimLight = new THREE.DirectionalLight(0xeaf4ff, 0.4);
+      rimLight.position.set(6, 18, -24);
+      scene.add(rimLight);
+
+      floorMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(1, 1),
+        new THREE.MeshStandardMaterial({
+          color: 0xcfd5dd,
+          roughness: 0.93,
+          metalness: 0.02,
+          side: THREE.DoubleSide
+        })
+      );
+      floorMesh.rotation.x = -Math.PI / 2;
+      floorMesh.receiveShadow = true;
+      scene.add(floorMesh);
+
+      backdropMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(90, 32, 20),
+        new THREE.MeshBasicMaterial({
+          color: 0xf6f8fc,
+          side: THREE.BackSide,
+          fog: false
+        })
+      );
+      backdropMesh.position.y = 18;
+      scene.add(backdropMesh);
+
+      gridHelper = new THREE.GridHelper(1, 24, 0x8f99a6, 0xdfe4ea);
+      gridHelper.material.transparent = true;
+      gridHelper.material.opacity = 0.72;
+      scene.add(gridHelper);
+
+      axesHelper = new THREE.AxesHelper(1.5);
+      scene.add(axesHelper);
+
+      raycaster = new THREE.Raycaster();
+      mouse = new THREE.Vector2();
+
+      renderer.domElement.addEventListener("click", onMouseClick);
+      renderer.domElement.addEventListener("touchstart", onTouchStart, { passive: false });
+      window.addEventListener("resize", onWindowResize);
+
+      fileUploadEl.addEventListener("change", onFileUpload);
+      btnReset.addEventListener("click", () => {
+        clearSelection();
+        resetCameraToScene();
+      });
+      btnWireframe.addEventListener("click", toggleWireframe);
+      btnGrid.addEventListener("click", toggleGrid);
+      btnClear.addEventListener("click", clearSelection);
+
+      restoreFreeCameraControls();
+      setIdleSceneView();
+      animate();
+    }
+
+    async function loadDefaultJSON() {
+      showLoading("Loading default JSON...");
+
+      try {
+        const response = await fetch(`./${DEFAULT_JSON_FILE}`);
+        if (!response.ok) {
+          throw new Error("Cannot load default JSON");
+        }
+
+        const data = await response.json();
+        fileNameEl.textContent = `Loaded: ${DEFAULT_JSON_FILE}`;
+        rebuildSceneFromData(data);
+        hideLoading();
+      } catch (error) {
+        console.warn("Default JSON not found:", error);
+        setIdleSceneView();
+        showLoading("No default JSON found.<br>Please use Upload JSON File.");
+      }
+    }
+
+    function onFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      fileNameEl.textContent = `Loaded: ${file.name}`;
+      showLoading("Reading uploaded JSON...");
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const data = JSON.parse(e.target.result);
+          rebuildSceneFromData(data);
+          hideLoading();
+        } catch (error) {
+          console.error("Invalid JSON:", error);
+          showLoading("Error parsing JSON file.");
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function rebuildSceneFromData(data) {
+      clearExistingWalls();
+      clearSelection();
+
+      if (!data || !Array.isArray(data.walls)) {
+        throw new Error("JSON must contain a walls array");
+      }
+
+      data.walls.forEach((wall, index) => {
+        const mesh = createWallMeshFromData(wall, index);
+        if (mesh) {
+          scene.add(mesh);
+          wallMeshes.push(mesh);
+        }
+      });
+
+      if (wallMeshes.length > 0) {
+        updateSceneBoundsAndCamera();
+      }
+    }
+
+    function clearExistingWalls() {
+      wallMeshes.forEach(mesh => {
+        disposeMeshDeep(mesh);
+        scene.remove(mesh);
+      });
+      wallMeshes = [];
+    }
+
+    function disposeMeshDeep(object) {
+      object.traverse(child => {
+        if (child.geometry) {
+          child.geometry.dispose();
+        }
+
+        if (child.material) {
+          if (Array.isArray(child.material)) {
+            child.material.forEach(mat => mat.dispose());
+          } else {
+            child.material.dispose();
+          }
+        }
+      });
+    }
+
+    function createWallMeshFromData(wall, index) {
+      const bottom = wall.bottom_3d;
+      const top = wall.top_3d;
+
+      if (!Array.isArray(bottom) || !Array.isArray(top) || bottom.length < 4 || top.length < 4) {
+        console.warn(`Skipping wall ${wall.id ?? index}: invalid bottom_3d/top_3d`);
+        return null;
+      }
+
+      const normalizedBottom = bottom.map(p => normalizePoint3D(p)).filter(Boolean);
+      const normalizedTop = top.map(p => normalizePoint3D(p)).filter(Boolean);
+
+      if (normalizedBottom.length < 4 || normalizedTop.length < 4) {
+        console.warn(`Skipping wall ${wall.id ?? index}: not enough valid 3D points`);
+        return null;
+      }
+
+      // ใช้ 4 จุดแรกก่อน เพื่อให้เหมาะกับ lab และเข้าใจง่าย
+      const b = normalizedBottom.slice(0, 4);
+      const t = normalizedTop.slice(0, 4);
+
+      const vertices = [...b, ...t];
+      const flatPositions = new Float32Array(vertices.flat());
+
+      // index สำหรับทรงสี่เหลี่ยมที่มี 8 จุด
+      const indices = [
+        // bottom
+        0, 1, 2,
+        0, 2, 3,
+
+        // top
+        4, 6, 5,
+        4, 7, 6,
+
+        // side 1
+        0, 4, 5,
+        0, 5, 1,
+
+        // side 2
+        1, 5, 6,
+        1, 6, 2,
+
+        // side 3
+        2, 6, 7,
+        2, 7, 3,
+
+        // side 4
+        3, 7, 4,
+        3, 4, 0
+      ];
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(flatPositions, 3));
+      geometry.setIndex(indices);
+      geometry.computeVertexNormals();
+
+      const material = new THREE.MeshStandardMaterial({
+        color: DEFAULT_WALL_COLOR,
+        transparent: true,
+        opacity: 0.88,
+        roughness: 0.4,
+        metalness: 0.08,
+        emissive: 0x0d2740,
+        emissiveIntensity: 0.08,
+        side: THREE.DoubleSide
+      });
+
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+
+      const edges = new THREE.EdgesGeometry(geometry);
+      const edgeLines = new THREE.LineSegments(
+        edges,
+        new THREE.LineBasicMaterial({ color: EDGE_COLOR })
+      );
+      edgeLines.name = "edges";
+      mesh.add(edgeLines);
+
+      const wireframe = new THREE.LineSegments(
+        new THREE.WireframeGeometry(geometry),
+        new THREE.LineBasicMaterial({ color: WIREFRAME_COLOR })
+      );
+      wireframe.name = "wireframe";
+      wireframe.visible = wireframeVisible;
+      mesh.add(wireframe);
+
+      const height = estimateWallHeight(b, t);
+
+      mesh.userData = {
+        wall,
+        id: wall.id ?? `wall_${index + 1}`,
+        confidence: wall.confidence,
+        bbox: wall.bbox ?? null,
+        bottom_3d: b,
+        top_3d: t,
+        height,
+        originalColor: DEFAULT_WALL_COLOR
+      };
+
+      return mesh;
+    }
+
+    function normalizePoint3D(point) {
+      if (!Array.isArray(point) || point.length < 3) return null;
+      const px = Number(point[0]);
+      const py = Number(point[1]);
+      const pz = Number(point[2]);
+
+      if (![px, py, pz].every(Number.isFinite)) return null;
+
+      // ใน JSON แกน Y คือแนวลึก (depth) แกน Z คือความสูง (height) มีค่าเช่น 500
+      // เราต้องสลับแกนเพื่อให้ Three.js เข้าใจ (Three.js ใช้ Y เป็นความตั้ง/ความสูง)
+      // ปรับสเกลให้อยู่ในหน่วยเมตรสมมติ 500 หน่วย = 2.5 เมตร (อัตราส่วน 0.005)
+      const scale = 0.005;
+
+      const x = px * scale;
+      const y = pz * scale; // ความสูงใน JSON คือ Z
+      const z = py * scale; // แนวตั้งบนรูป 2D คือแนวลึก
+
+      return [x, y, z];
+    }
+
+    function estimateWallHeight(bottomPts, topPts) {
+      // หลังจากสลับแกน ความสูงของเราคือแกน Y (index [1])
+      const bottomAvgY = average(bottomPts.map(p => p[1]));
+      const topAvgY = average(topPts.map(p => p[1]));
+      return Math.abs(topAvgY - bottomAvgY);
+    }
+
+    function average(arr) {
+      if (!arr.length) return 0;
+      return arr.reduce((sum, v) => sum + v, 0) / arr.length;
+    }
+
+    function updateSceneBoundsAndCameraLegacy() {
+      const box = new THREE.Box3();
+
+      wallMeshes.forEach(mesh => box.expandByObject(mesh));
+
+      if (box.isEmpty()) return;
+
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+
+      currentSceneCenter.copy(center);
+      currentSceneSize.copy(size);
+
+      // ขยับพื้นไปไว้ที่ฐานของวัตถุ (แกน Y)
+      const floorY = Math.min(0, box.min.y - 0.01);
+      floorMesh.position.set(center.x, floorY, center.z);
+      gridHelper.position.set(center.x, floorY + 0.001, center.z);
+      axesHelper.position.set(box.min.x, floorY + 0.002, box.min.z);
+
+      resetCameraToScene();
+    }
+
+    function resetCameraToSceneLegacy() {
+      const maxDim = Math.max(currentSceneSize.x, currentSceneSize.y, currentSceneSize.z, 20);
+      const distance = maxDim * 1.8;
+
+      camera.position.set(
+        currentSceneCenter.x + distance,
+        currentSceneCenter.y + distance,
+        currentSceneCenter.z + distance
+      );
+
+      controls.target.copy(currentSceneCenter);
+      controls.update();
+    }
+
+    function toggleWireframe() {
+      wireframeVisible = !wireframeVisible;
+
+      wallMeshes.forEach(mesh => {
+        const wireframe = mesh.getObjectByName("wireframe");
+        if (wireframe) {
+          wireframe.visible = wireframeVisible;
+        }
+      });
+    }
+
+    function toggleGrid() {
+      gridVisible = !gridVisible;
+      gridHelper.visible = gridVisible;
+    }
+
+    function clearSelectionLegacy() {
+      if (selectedWall) {
+        selectedWall.material.color.setHex(selectedWall.userData.originalColor);
+      }
+      selectedWall = null;
+      infoPanel.style.display = "none";
+    }
+
+    function onMouseClick(event) {
+      const rect = renderer.domElement.getBoundingClientRect();
+
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+
+      handleInteraction(x, y, rect.width, rect.height);
+    }
+
+    function onTouchStart(event) {
+      if (!event.touches || event.touches.length === 0) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      const touch = event.touches[0];
+
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+
+      handleInteraction(x, y, rect.width, rect.height);
+    }
+
+    function handleInteraction(px, py, width, height) {
+      mouse.x = (px / width) * 2 - 1;
+      mouse.y = -(py / height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+
+      const intersects = raycaster.intersectObjects(wallMeshes, true);
+
+      if (intersects.length === 0) {
+        clearSelection();
+        return;
+      }
+
+      let clickedObject = intersects[0].object;
+
+      while (clickedObject && !wallMeshes.includes(clickedObject)) {
+        clickedObject = clickedObject.parent;
+      }
+
+      if (!clickedObject) {
+        clearSelection();
+        return;
+      }
+
+      selectWall(clickedObject);
+    }
+
+    function selectWallLegacy(mesh) {
+      if (selectedWall && selectedWall !== mesh) {
+        selectedWall.material.color.setHex(selectedWall.userData.originalColor);
+      }
+
+      selectedWall = mesh;
+      selectedWall.material.color.setHex(HIGHLIGHT_WALL_COLOR);
+
+      updateInfoPanel(mesh.userData);
+    }
+
+    function updateInfoPanel(data) {
+      infoPanel.style.display = "block";
+      valId.textContent = data.id ?? "-";
+      valConf.textContent =
+        typeof data.confidence === "number"
+          ? data.confidence.toFixed(3)
+          : (data.confidence ?? "-");
+      valHeight.textContent =
+        typeof data.height === "number"
+          ? `${data.height.toFixed(2)}`
+          : "-";
+      valBBox.textContent = data.bbox ? JSON.stringify(data.bbox) : "-";
+      valBottom.textContent = JSON.stringify(data.bottom_3d);
+      valTop.textContent = JSON.stringify(data.top_3d);
+    }
+
+    function showLoading(message) {
+      loadingEl.style.display = "block";
+      loadingEl.innerHTML = message;
+    }
+
+    function hideLoading() {
+      loadingEl.style.display = "none";
+    }
+
+    function onWindowResizeLegacy() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    function setIdleSceneView() {
+      currentSceneCenter.set(0, 1.8, 0);
+      currentSceneSize.set(6, 3.6, 6);
+      currentSceneBounds.min.set(-3, 0, -3);
+      currentSceneBounds.max.set(3, 3.6, 3);
+
+      updateGroundHelpers(currentSceneCenter, currentSceneSize, 0);
+      resetCameraToScene();
+    }
+
+    function updateGroundHelpers(center, size, baseY) {
+      const helperSize = Math.max(size.x, size.z, DEFAULT_HELPER_SIZE) * 1.6;
+      const floorY = Math.min(0, baseY - 0.01);
+      const axisSize = THREE.MathUtils.clamp(
+        Math.max(size.x, size.y, size.z) * 0.55,
+        1.5,
+        8
+      );
+
+      floorMesh.position.set(center.x, floorY, center.z);
+      floorMesh.scale.set(helperSize, helperSize, 1);
+
+      gridHelper.position.set(center.x, floorY + 0.001, center.z);
+      gridHelper.scale.set(helperSize, 1, helperSize);
+      gridHelper.visible = gridVisible;
+
+      axesHelper.position.set(center.x - helperSize * 0.5, floorY + 0.002, center.z - helperSize * 0.5);
+      axesHelper.scale.setScalar(axisSize);
+
+      if (backdropMesh) {
+        backdropMesh.position.set(center.x, Math.max(center.y + helperSize * 0.45, 10), center.z);
+        backdropMesh.scale.setScalar(Math.max(helperSize * 1.4, 40));
+      }
+    }
+
+    function frameCameraToBox(box, options = {}) {
+      if (!box || box.isEmpty()) return;
+
+      const {
+        direction = SCENE_CAMERA_DIRECTION,
+        padding = 1.35,
+        target = null,
+        horizontalSpan = null,
+        verticalSpan = null
+      } = options;
+
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const vFov = THREE.MathUtils.degToRad(camera.fov);
+      const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+      const fitWidth = Math.max(horizontalSpan ?? Math.max(size.x, size.z), 0.1);
+      const fitHeight = Math.max(verticalSpan ?? size.y, 0.1);
+      const fitDistance = Math.max(
+        fitHeight / (2 * Math.tan(vFov / 2)),
+        fitWidth / (2 * Math.tan(hFov / 2))
+      );
+      const depthOffset = Math.max(size.x, size.y, size.z, 1) * 0.55;
+      const distance = Math.max(fitDistance * padding + depthOffset, 2.5);
+      const offsetDirection = direction.clone().normalize();
+
+      camera.position.copy(center).addScaledVector(offsetDirection, distance);
+      camera.near = Math.max(distance / 200, 0.05);
+      camera.far = Math.max(distance * 40, 200);
+      camera.updateProjectionMatrix();
+
+      controls.target.copy(target ?? center);
+      controls.update();
+    }
+
+    function getWallFocusDirection(mesh, center) {
+      const points = mesh.userData.bottom_3d;
+      let faceWidth = 0;
+      let normal = null;
+
+      if (Array.isArray(points) && points.length >= 2) {
+        for (let i = 0; i < points.length; i += 1) {
+          const current = points[i];
+          const next = points[(i + 1) % points.length];
+          const edge = new THREE.Vector3(next[0] - current[0], 0, next[2] - current[2]);
+          const length = edge.length();
+
+          if (length > faceWidth) {
+            faceWidth = length;
+            normal = new THREE.Vector3(-edge.z, 0, edge.x);
+          }
+        }
+      }
+
+      if (!normal || normal.lengthSq() < 1e-6) {
+        normal = new THREE.Vector3(1, 0, 1);
+      }
+
+      normal.normalize();
+
+      const towardSceneCenter = currentSceneCenter.clone().sub(center).setY(0);
+      if (towardSceneCenter.lengthSq() > 1e-6 && normal.dot(towardSceneCenter) > 0) {
+        normal.negate();
+      }
+
+      return {
+        direction: new THREE.Vector3(normal.x, WALL_CAMERA_ELEVATION, normal.z).normalize(),
+        faceWidth
+      };
+    }
+
+    function focusCameraOnWall(mesh) {
+      if (!mesh) return;
+
+      const box = new THREE.Box3().setFromObject(mesh);
+      if (box.isEmpty()) return;
+
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const focus = getWallFocusDirection(mesh, center);
+      restoreFreeCameraControls();
+
+      frameCameraToBox(box, {
+        direction: focus.direction,
+        target: center,
+        horizontalSpan: Math.max(focus.faceWidth, 0.6),
+        verticalSpan: Math.max(size.y, 0.6),
+        padding: 1.5
+      });
+    }
+
+    function restoreFreeCameraControls() {
+      controls.enableRotate = true;
+      controls.enablePan = true;
+      controls.enableZoom = true;
+      controls.minDistance = 0.5;
+      controls.maxDistance = 10000;
+    }
+
+    function updateSceneBoundsAndCamera() {
+      const box = new THREE.Box3();
+
+      wallMeshes.forEach(mesh => box.expandByObject(mesh));
+
+      if (box.isEmpty()) return;
+
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+
+      currentSceneCenter.copy(center);
+      currentSceneSize.copy(size);
+      currentSceneBounds.copy(box);
+
+      updateGroundHelpers(center, size, box.min.y);
+      resetCameraToScene();
+    }
+
+    function resetCameraToScene() {
+      restoreFreeCameraControls();
+      frameCameraToBox(currentSceneBounds, {
+        direction: SCENE_CAMERA_DIRECTION,
+        padding: 1.35
+      });
+    }
+
+    function clearSelection() {
+      if (selectedWall) {
+        selectedWall.material.color.setHex(selectedWall.userData.originalColor);
+      }
+
+      selectedWall = null;
+      infoPanel.style.display = "none";
+      restoreFreeCameraControls();
+    }
+
+    function selectWall(mesh) {
+      if (selectedWall && selectedWall !== mesh) {
+        selectedWall.material.color.setHex(selectedWall.userData.originalColor);
+      }
+
+      selectedWall = mesh;
+      selectedWall.material.color.setHex(HIGHLIGHT_WALL_COLOR);
+
+      focusCameraOnWall(mesh);
+      updateInfoPanel(mesh.userData);
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      if (selectedWall) {
+        focusCameraOnWall(selectedWall);
+      } else {
+        resetCameraToScene();
+      }
+    }
+  </script>
+</body>
+</html>
